@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JFrog AI Perception Scorecard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --green: #41BF47; --dark: #1B2A4A; --card: #ffffff;
+  --bg: #F0F4F9; --border: #E2E8F0; --muted: #64748B;
+  --red: #EF4444; --amber: #F59E0B; --blue: #3B82F6; --purple: #8B5CF6;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: #1a202c; }
+
+header {
+  background: var(--dark); color: white;
+  padding: 16px 32px; display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+}
+.logo { display: flex; align-items: center; gap: 12px; }
+.logo-icon { width: 38px; height: 38px; background: var(--green); border-radius: 10px;
+  display: flex; align-items: center; justify-content: center; font-size: 22px; }
+header h1 { font-size: 18px; font-weight: 700; }
+header p { font-size: 12px; opacity: 0.6; margin-top: 1px; }
+
+.scan-btn {
+  background: var(--green); color: white; border: none;
+  padding: 10px 22px; border-radius: 8px; font-size: 14px; font-weight: 700;
+  cursor: pointer; display: flex; align-items: center; gap: 8px; transition: opacity .2s;
+}
+.scan-btn:hover { opacity: 0.85; }
+.scan-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.progress-bar {
+  height: 3px; background: var(--green);
+  width: 0; transition: width .4s ease; position: fixed; top: 0; left: 0; z-index: 200;
+}
+
+.container { max-width: 1140px; margin: 0 auto; padding: 28px 16px; }
+
+.status-toast {
+  background: var(--dark); color: white; border-left: 4px solid var(--green);
+  border-radius: 10px; padding: 12px 18px; margin-bottom: 20px;
+  font-size: 13px; display: none; align-items: center; gap: 10px;
+}
+.status-toast.show { display: flex; }
+
+/* HERO */
+.hero {
+  display: grid; grid-template-columns: auto 1fr 1fr 1fr; gap: 20px;
+  background: var(--dark); border-radius: 16px; padding: 28px; margin-bottom: 24px; color: white;
+}
+.hero-main { border-right: 1px solid rgba(255,255,255,0.1); padding-right: 28px; }
+.hero-score { font-size: 80px; font-weight: 800; color: var(--green); line-height: 1; }
+.hero-label { font-size: 13px; opacity: 0.6; margin-top: 4px; }
+.hero-delta { font-size: 14px; margin-top: 8px; font-weight: 600; }
+.delta-up { color: var(--green); } .delta-down { color: var(--red); }
+.hero-stat { display: flex; flex-direction: column; justify-content: center; padding: 0 8px; }
+.hero-stat-num { font-size: 36px; font-weight: 700; }
+.hero-stat-label { font-size: 12px; opacity: 0.55; margin-top: 4px; }
+.scan-time { font-size: 11px; opacity: 0.4; margin-top: 16px; }
+
+/* SOV bar */
+.sov-section { margin-bottom: 24px; }
+.sov-card { background: var(--card); border-radius: 12px; border: 1px solid var(--border); padding: 20px; }
+.sov-card h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 14px; }
+.sov-row { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+.sov-row:last-child { margin-bottom: 0; }
+.sov-name { width: 80px; font-size: 14px; font-weight: 700; }
+.sov-track { flex: 1; height: 12px; background: var(--border); border-radius: 6px; overflow: hidden; }
+.sov-fill { height: 100%; border-radius: 6px; transition: width .7s ease; }
+.sov-pct { width: 44px; text-align: right; font-size: 14px; font-weight: 700; }
+.sov-fill-jfrog    { background: var(--green); }
+.sov-fill-sonatype { background: var(--blue); }
+.sov-fill-snyk     { background: var(--purple); }
+
+/* Grid */
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }
+.grid4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 24px; }
+.card { background: var(--card); border-radius: 12px; border: 1px solid var(--border); padding: 20px; }
+.card h3 { font-size: 12px; text-transform: uppercase; letter-spacing:.06em; color: var(--muted); margin-bottom: 14px; }
+
+/* LLM cards */
+.llm-card { text-align: center; position: relative; }
+.llm-name { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+.llm-score { font-size: 44px; font-weight: 800; }
+.llm-mention { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.llm-bar { height: 5px; background: var(--border); border-radius: 3px; margin-top: 12px; }
+.llm-fill { height: 100%; border-radius: 3px; background: var(--green); transition: width .6s; }
+.demo-badge { position: absolute; top: 10px; right: 10px; background: #fef3c7;
+  color: #92400e; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 6px; }
+.llm-delta { font-size: 12px; font-weight: 700; margin-top: 4px; }
+
+/* Insights */
+.insight { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0;
+  border-bottom: 1px solid var(--border); }
+.insight:last-child { border-bottom: none; }
+.insight-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+.insight-text { font-size: 13px; color: #374151; line-height: 1.55; }
+
+/* Responses */
+.question-block { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 12px; }
+.q-header { background: #f8fafc; padding: 12px 16px; font-size: 13px; font-weight: 600;
+  cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+.q-header:hover { background: #edf2f7; }
+.q-dim { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 8px;
+  background: #dbeafe; color: #1e3a8a; margin-left: 8px; }
+.q-body { display: none; }
+.q-body.open { display: block; }
+.llm-ans { padding: 14px 16px; border-top: 1px solid var(--border); }
+.ans-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.llm-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+.b-ChatGPT { background: #d1fae5; color: #065f46; }
+.b-Claude  { background: #fce7f3; color: #831843; }
+.b-Gemini  { background: #dbeafe; color: #1e3a8a; }
+.b-Grok    { background: #f3f4f6; color: #374151; }
+.ans-text { font-size: 13px; color: #374151; line-height: 1.65; }
+.score-chip { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px;
+  background: var(--green); color: white; margin-left: auto; }
+.score-chip.mid { background: #fef3c7; color: #92400e; }
+.score-chip.low { background: #fee2e2; color: #991b1b; }
+.feature-tag { display:inline-block; background:#dcfce7; color:#166534;
+  font-size:10px; padding:1px 6px; border-radius:6px; margin:2px; }
+
+/* Scan status panel */
+.scan-panel {
+  background: var(--dark); border-radius: 12px; padding: 20px 24px;
+  margin-bottom: 24px; display: none;
+}
+.scan-panel.show { display: block; }
+.scan-panel-title { color: rgba(255,255,255,.5); font-size: 12px; text-transform: uppercase;
+  letter-spacing:.06em; margin-bottom: 14px; }
+.llm-rows { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 16px; }
+.llm-row { background: rgba(255,255,255,.06); border-radius: 10px; padding: 12px 14px; }
+.llm-row-name { color: white; font-size: 13px; font-weight: 700; margin-bottom: 8px; }
+.llm-row-status { font-size: 12px; color: rgba(255,255,255,.5); }
+.llm-row.ok .llm-row-status { color: var(--green); }
+.llm-row.fail .llm-row-status { color: var(--red); }
+.llm-row.demo .llm-row-status { color: var(--amber); }
+.analyze-bar-wrap { margin-top: 4px; }
+.analyze-label { color: rgba(255,255,255,.45); font-size: 12px; margin-bottom: 6px; }
+.analyze-bar { height: 4px; background: rgba(255,255,255,.1); border-radius: 2px; }
+.analyze-fill { height: 100%; background: var(--green); border-radius: 2px; transition: width .3s; }
+
+.empty { text-align: center; padding: 80px 20px; color: var(--muted); }
+.empty-icon { font-size: 56px; margin-bottom: 16px; }
+.empty h2 { font-size: 22px; color: #1a202c; margin-bottom: 8px; }
+
+@media(max-width:750px) {
+  .grid4 { grid-template-columns: repeat(2,1fr); }
+  .grid2 { grid-template-columns: 1fr; }
+  .hero { grid-template-columns: 1fr 1fr; }
+  .hero-main { grid-column: 1/-1; border-right: none; border-bottom: 1px solid rgba(255,255,255,.1); padding-bottom: 16px; }
+}
+</style>
+</head>
+<body>
+<div class="progress-bar" id="pbar"></div>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🐸</div>
+    <div>
+      <h1>JFrog AI Perception Scorecard</h1>
+      <p>How LLMs position JFrog vs Sonatype & Snyk in Security</p>
+    </div>
+  </div>
+  <button class="scan-btn" id="scanBtn" onclick="startScan()">
+    <span>▶</span> Run New Scan
+  </button>
+</header>
+
+<div class="container">
+
+  <!-- Live scan status panel -->
+  <div class="scan-panel" id="scanPanel">
+    <div class="scan-panel-title">Live Scan Progress</div>
+    <div class="llm-rows" id="llmRows"></div>
+    <div class="analyze-bar-wrap" id="analyzeWrap" style="display:none">
+      <div class="analyze-label" id="analyzeLabel">Analyzing responses with GPT-4o mini...</div>
+      <div class="analyze-bar"><div class="analyze-fill" id="analyzeFill" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <div id="app">
+    <div class="empty">
+      <div class="empty-icon">📡</div>
+      <h2>No scan data yet</h2>
+      <p>Click "Run New Scan" to query all LLMs across 5 security dimensions<br>
+         with 3 prompt variations each — 60 total responses analyzed.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const DIM_LABELS = {
+  supply_chain: "Supply Chain",
+  vulnerability_scanning: "Vuln Scanning",
+  compliance: "Compliance",
+  enterprise: "Enterprise",
+  developer_ux: "Developer UX",
+};
+const COLORS = { JFrog:"#41BF47", Sonatype:"#3B82F6", Snyk:"#8B5CF6" };
+const LLM_COLORS = { ChatGPT:"#10B981", Claude:"#EC4899", Gemini:"#3B82F6", Grok:"#6B7280" };
+const LLMS = ["ChatGPT", "Claude", "Gemini", "Grok"];
+
+let trendChart = null, radarChart = null;
+// Track status per LLM: pending / running / ok / fail / demo
+let llmStatus = {};
+const TOTAL_PROMPTS = 15;
+
+function chipClass(s) { return s >= 55 ? "" : s >= 35 ? "mid" : "low"; }
+function deltaHtml(d) {
+  if (d === undefined || d === null) return "";
+  const sign = d > 0 ? "+" : "";
+  const cls = d > 0 ? "delta-up" : d < 0 ? "delta-down" : "";
+  return `<span class="${cls}">${sign}${d} vs last scan</span>`;
+}
+
+function initLLMRows() {
+  llmStatus = Object.fromEntries(LLMS.map(l => [l, { state:"pending", done:0, ok:0, fail:0 }]));
+  document.getElementById("llmRows").innerHTML = LLMS.map(llm => `
+    <div class="llm-row" id="row-${llm}">
+      <div class="llm-row-name" style="color:${LLM_COLORS[llm]}">${llm}</div>
+      <div class="llm-row-status" id="status-${llm}">⏳ Waiting...</div>
+    </div>`).join("");
+}
+
+function updateLLMRow(llm) {
+  const s = llmStatus[llm];
+  const row = document.getElementById(`row-${llm}`);
+  const statusEl = document.getElementById(`status-${llm}`);
+  if (!row || !statusEl) return;
+
+  row.className = "llm-row";
+  if (s.state === "running") {
+    statusEl.textContent = `⏳ ${s.done}/${TOTAL_PROMPTS} prompts`;
+  } else if (s.state === "done") {
+    if (s.fail === 0 && !s.demo) {
+      row.classList.add("ok");
+      statusEl.textContent = `✅ ${s.ok}/${TOTAL_PROMPTS} completed`;
+    } else if (s.demo) {
+      row.classList.add("demo");
+      statusEl.textContent = `🔵 Demo mode (${s.ok} responses)`;
+    } else {
+      row.classList.add(s.ok > 0 ? "demo" : "fail");
+      statusEl.textContent = `⚠️ ${s.ok} ok · ${s.fail} failed`;
+    }
+  }
+}
+
+async function startScan() {
+  const btn = document.getElementById("scanBtn");
+  const panel = document.getElementById("scanPanel");
+  const pbar = document.getElementById("pbar");
+
+  btn.disabled = true;
+  btn.innerHTML = "<span>⏳</span> Scanning...";
+  panel.className = "scan-panel show";
+  pbar.style.width = "5%";
+  document.getElementById("analyzeWrap").style.display = "none";
+  initLLMRows();
+
+  const es = new EventSource("/api/scan");
+
+  es.addEventListener("llm_start", e => {
+    const { llm } = JSON.parse(e.data);
+    llmStatus[llm].state = "running";
+    updateLLMRow(llm);
+    pbar.style.width = "30%";
+  });
+
+  es.addEventListener("llm_done", e => {
+    const { llm, ok, demo } = JSON.parse(e.data);
+    llmStatus[llm].done++;
+    if (ok) llmStatus[llm].ok++; else llmStatus[llm].fail++;
+    if (demo) llmStatus[llm].demo = true;
+    if (llmStatus[llm].done >= TOTAL_PROMPTS) llmStatus[llm].state = "done";
+    updateLLMRow(llm);
+  });
+
+  es.addEventListener("analyzing", e => {
+    const { count, total } = JSON.parse(e.data);
+    const wrap = document.getElementById("analyzeWrap");
+    wrap.style.display = "block";
+    document.getElementById("analyzeLabel").textContent =
+      `Analyzing with GPT-4o mini... ${count}/${total}`;
+    document.getElementById("analyzeFill").style.width = `${Math.round(count/total*100)}%`;
+    pbar.style.width = "70%";
+  });
+
+  es.addEventListener("complete", e => {
+    es.close();
+    pbar.style.width = "100%";
+    btn.disabled = false;
+    btn.innerHTML = "<span>▶</span> Run New Scan";
+    document.getElementById("analyzeLabel").textContent = "✅ Analysis complete";
+    document.getElementById("analyzeFill").style.width = "100%";
+    setTimeout(() => {
+      panel.className = "scan-panel";
+      pbar.style.width = "0";
+    }, 2000);
+    renderDashboard(JSON.parse(e.data));
+    loadTrend();
+  });
+
+  es.addEventListener("error", () => {
+    es.close();
+    btn.disabled = false;
+    btn.innerHTML = "<span>▶</span> Run New Scan";
+    document.getElementById("analyzeLabel").textContent = "❌ Error — check API keys in .env";
+    pbar.style.width = "0";
+  });
+}
+
+function renderDashboard(data) {
+  const { summary, results, timestamp } = data;
+  const llms = ["ChatGPT", "Claude", "Gemini", "Grok"];
+  const dims = Object.keys(DIM_LABELS);
+
+  // SOV
+  const sovHtml = summary.shareOfVoice.map(s => {
+    const cls = `sov-fill-${s.company.toLowerCase()}`;
+    return `<div class="sov-row">
+      <div class="sov-name">${s.company}</div>
+      <div class="sov-track"><div class="sov-fill ${cls}" style="width:${s.percentage}%"></div></div>
+      <div class="sov-pct" style="color:${COLORS[s.company] || '#333'}">${s.percentage}%</div>
+    </div>`;
+  }).join("");
+
+  // LLM cards
+  const llmCards = llms.map(llm => {
+    const s = summary.llmSummaries[llm];
+    if (!s) return "";
+    const d = s.delta;
+    return `<div class="card llm-card">
+      ${s.isDemo ? '<div class="demo-badge">DEMO</div>' : ''}
+      <div class="llm-name" style="color:${LLM_COLORS[llm]}">${llm}</div>
+      <div class="llm-score" style="color:${LLM_COLORS[llm]}">${s.overallScore}</div>
+      <div class="llm-delta">${d !== undefined ? deltaHtml(d) : ''}</div>
+      <div class="llm-mention">Mentions JFrog in ${s.mentionRate}% of responses</div>
+      <div class="llm-bar"><div class="llm-fill" style="width:${s.overallScore}%;background:${LLM_COLORS[llm]}"></div></div>
+    </div>`;
+  }).join("");
+
+  // Competitor bar
+  const allScores = { JFrog: summary.overallScore, ...summary.competitorScores };
+  const maxS = Math.max(...Object.values(allScores), 1);
+  const compHtml = Object.entries(allScores).map(([co, sc]) => `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      <div style="width:86px;font-size:14px;font-weight:700">${co}</div>
+      <div style="flex:1;height:12px;background:var(--border);border-radius:6px;overflow:hidden">
+        <div style="height:100%;width:${Math.round(sc/maxS*100)}%;background:${COLORS[co]||'#999'};border-radius:6px;transition:width .7s"></div>
+      </div>
+      <div style="width:32px;text-align:right;font-size:14px;font-weight:700">${sc}</div>
+    </div>`).join("");
+
+  // Insights
+  const insightIcon = { win:"✅", loss:"⚠️", neutral:"➡️" };
+  const insightsHtml = (summary.insights || []).map(i =>
+    `<div class="insight">
+      <div class="insight-icon">${insightIcon[i.type]}</div>
+      <div class="insight-text">${i.message}</div>
+    </div>`
+  ).join("");
+
+  // Responses
+  const byPrompt = {};
+  for (const r of results) {
+    const key = r.prompt.id;
+    if (!byPrompt[key]) byPrompt[key] = { prompt: r.prompt, answers: [] };
+    byPrompt[key].answers.push(r);
+  }
+  const qHtml = Object.values(byPrompt).map((q, i) => {
+    const avg = Math.round(q.answers.reduce((s, a) => s + (a.scores?.JFrog?.rawScore ?? 0), 0) / q.answers.length);
+    const dim = DIM_LABELS[q.prompt.dimension] || q.prompt.dimension;
+    const ansHtml = q.answers.map(a => {
+      const js = a.scores?.JFrog?.rawScore ?? 0;
+      const feats = (a.scores?.JFrog?.featuresAttributed || []).map(f => `<span class="feature-tag">${f}</span>`).join("");
+      return `<div class="llm-ans">
+        <div class="ans-header">
+          <span class="llm-badge b-${a.llm}">${a.llm}</span>
+          <span style="font-size:11px;color:var(--muted)">${a.latencyMs}ms</span>
+          <span class="score-chip ${chipClass(js)}">JFrog: ${js}</span>
+        </div>
+        <div class="ans-text">${a.answer || '<em style="color:#aaa">No response</em>'}</div>
+        ${feats ? `<div style="margin-top:6px">${feats}</div>` : ""}
+      </div>`;
+    }).join("");
+    return `<div class="question-block">
+      <div class="q-header" onclick="toggleQ('qb${i}')">
+        <span><span class="q-dim">${dim}</span> ${q.prompt.text}</span>
+        <span class="score-chip ${chipClass(avg)}">${avg}</span>
+      </div>
+      <div class="q-body" id="qb${i}">${ansHtml}</div>
+    </div>`;
+  }).join("");
+
+  document.getElementById("app").innerHTML = `
+    <div class="hero">
+      <div class="hero-main">
+        <div class="hero-score">${summary.overallScore}</div>
+        <div style="font-size:13px;opacity:.55;margin-top:4px">JFrog Overall AI Perception Score</div>
+        <div class="hero-delta" style="margin-top:8px">${deltaHtml(summary.overallDelta)}</div>
+        <div class="scan-time">Last scan: ${new Date(timestamp).toLocaleString()}</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-num">${summary.totalResponses}</div>
+        <div class="hero-stat-label">Total LLM responses analyzed</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-num">${summary.shareOfVoice.find(s=>s.company==="JFrog")?.percentage ?? 0}%</div>
+        <div class="hero-stat-label">Share of Voice</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-num">4</div>
+        <div class="hero-stat-label">LLMs benchmarked</div>
+      </div>
+    </div>
+
+    <div class="grid2 sov-section" style="margin-bottom:24px">
+      <div class="sov-card card">
+        <h3>Share of Voice — % of responses mentioning each company</h3>
+        ${sovHtml}
+      </div>
+      <div class="card">
+        <h3>Competitive Positioning (avg score)</h3>
+        ${compHtml}
+      </div>
+    </div>
+
+    <div class="grid4">${llmCards}</div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>Dimension Breakdown (JFrog)</h3>
+        <canvas id="radarChart" height="220"></canvas>
+      </div>
+      <div class="card">
+        <h3>Score Trend Over Time</h3>
+        <canvas id="trendChart" height="220"></canvas>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:24px">
+      <h3 style="margin-bottom:14px">Competitive Intelligence Insights</h3>
+      ${insightsHtml || '<p style="color:var(--muted);font-size:13px">Run more scans to generate insights.</p>'}
+    </div>
+
+    <div class="card">
+      <h3 style="margin-bottom:16px">All Responses — Question by Question</h3>
+      ${qHtml}
+    </div>`;
+
+  // Radar chart
+  const dimKeys = Object.keys(DIM_LABELS);
+  const radarCtx = document.getElementById("radarChart").getContext("2d");
+  if (radarChart) radarChart.destroy();
+  radarChart = new Chart(radarCtx, {
+    type: "radar",
+    data: {
+      labels: dimKeys.map(k => DIM_LABELS[k]),
+      datasets: [
+        { label: "JFrog", data: dimKeys.map(k => summary.dimensionScores[k] ?? 0),
+          borderColor: "#41BF47", backgroundColor: "rgba(65,191,71,0.15)", pointBackgroundColor: "#41BF47" },
+        { label: "Sonatype", data: dimKeys.map(k => {
+            const rs = results.filter(r => r.prompt.dimension === k);
+            return rs.length ? Math.round(rs.reduce((s,r)=>s+(r.scores?.Sonatype?.rawScore??0),0)/rs.length) : 0;
+          }), borderColor:"#3B82F6", backgroundColor:"rgba(59,130,246,0.1)", pointBackgroundColor:"#3B82F6" },
+        { label: "Snyk", data: dimKeys.map(k => {
+            const rs = results.filter(r => r.prompt.dimension === k);
+            return rs.length ? Math.round(rs.reduce((s,r)=>s+(r.scores?.Snyk?.rawScore??0),0)/rs.length) : 0;
+          }), borderColor:"#8B5CF6", backgroundColor:"rgba(139,92,246,0.1)", pointBackgroundColor:"#8B5CF6" },
+      ],
+    },
+    options: {
+      scales: { r: { min: 0, max: 100, ticks: { stepSize: 20, font:{size:10} }, pointLabels:{font:{size:11}} } },
+      plugins: { legend: { position:"bottom", labels:{font:{size:11}} } },
+    }
+  });
+
+  loadTrend();
+}
+
+function toggleQ(id) { document.getElementById(id)?.classList.toggle("open"); }
+
+async function loadTrend() {
+  const history = await fetch("/api/history").then(r => r.json());
+  if (!history || history.length < 2) return;
+  const labels = history.map(h => new Date(h.timestamp).toLocaleDateString());
+  const jfrog = history.map(h => h.summary.overallScore);
+  const sonatype = history.map(h => h.summary.competitorScores?.Sonatype ?? 0);
+  const snyk = history.map(h => h.summary.competitorScores?.Snyk ?? 0);
+
+  const ctx = document.getElementById("trendChart")?.getContext("2d");
+  if (!ctx) return;
+  if (trendChart) trendChart.destroy();
+  trendChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        { label:"JFrog", data:jfrog, borderColor:"#41BF47", backgroundColor:"rgba(65,191,71,0.1)", tension:.4, fill:true },
+        { label:"Sonatype", data:sonatype, borderColor:"#3B82F6", backgroundColor:"transparent", tension:.4 },
+        { label:"Snyk", data:snyk, borderColor:"#8B5CF6", backgroundColor:"transparent", tension:.4 },
+      ],
+    },
+    options: {
+      scales: { y: { min:0, max:100, grid:{color:"#f0f0f0"} }, x:{grid:{display:false}} },
+      plugins: { legend:{position:"bottom", labels:{font:{size:11}}} },
+    }
+  });
+}
+
+fetch("/api/latest").then(r=>r.json()).then(d => { if(d) renderDashboard(d); });
+fetch("/api/history").then(r=>r.json()).then(h => { if(h?.length>=2) loadTrend(); });
+</script>
+</body>
+</html>
