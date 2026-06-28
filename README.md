@@ -206,6 +206,28 @@ JFrog dominates Enterprise Readiness (69 vs Snyk 12) but trails on Vulnerability
 
 ---
 
+## Future steps
+
+The current build is a fully functional Stage 1 baseline. Given more time and resources, the following would be prioritised in order of business impact:
+
+**High impact, low effort**
+- **Score breakdown drill-down** — clicking any score shows the exact rank/sentiment/framing/features split that produced it. Currently the score is opaque.
+- **CSV / JSON export** — one-click export of raw per-response data for analysts who prefer Excel pivot tables over charts.
+- **Scheduled scans + Slack alerts** — cron-triggered weekly scans with a webhook notification when any dimension score shifts by more than a configurable threshold.
+
+**High impact, higher effort**
+- **Add Claude, Gemini, Grok** — the LLMs named in the brief. Each requires a new connector file (~30 lines). Withheld here due to API access and cost; architecture supports it with a one-line addition.
+- **Rotating the analyzer** — GPT-4o-mini currently analyzes all responses including ChatGPT's. Rotating the judge (e.g. Claude analyzes OpenAI responses, GPT-4o-mini analyzes Groq responses) eliminates same-vendor bias.
+- **Phrase extraction / word cloud** — which exact words and phrases do LLMs associate with JFrog vs Snyk? Surfaces content gaps more precisely than dimension scores alone.
+- **Multi-domain coverage** — extend prompts beyond Security into DevOps, CI/CD pipelines, and container management where JFrog also competes.
+
+**Longer term**
+- **Ground truth validation** — pair perception scores with actual capability benchmarks (e.g. run Xray against a known CVE dataset) to quantify the perception gap vs. product reality.
+- **Competitive event detection** — flag scan-over-scan drops in competitor scores that correlate with press releases, blog posts, or conference talks, turning the scoreboard into a signal tracker.
+- **Self-service prompt editor** — let the CI team add or modify prompts without touching code, backed by a simple admin UI and versioned prompt history.
+
+---
+
 ## References
 
 - [OpenAI Structured Outputs](https://platform.openai.com/docs/guides/structured-outputs)
