@@ -1,5 +1,9 @@
 node_modules/
 dist/
 .env
-data/
+data/*.json
+!data/.gitkeep
 *.js.map
+test-groq.ts
+validate-results.ts
+presentation.html

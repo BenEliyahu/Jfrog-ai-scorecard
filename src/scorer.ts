@@ -1,4 +1,4 @@
-import type { LLMResponse, CompanyScore, VariationResult, ShareOfVoice } from "./types";
+import type { LLMResponse, CompanyScore, VariationResult } from "./types";
 import { COMPANIES, ALL_COMPANIES } from "./dimensions";
 import { analyzeResponse } from "./llm/analyzer";
 import type { SingleCompanyAnalysis } from "./llm/analyzer";
@@ -59,17 +59,4 @@ export async function scoreResponse(response: LLMResponse): Promise<VariationRes
     latencyMs: response.latencyMs,
     scores,
   };
-}
-
-export function computeShareOfVoice(results: VariationResult[]): ShareOfVoice[] {
-  const total = results.filter(r => r.answer && !r.answer.startsWith("[ERROR")).length;
-  return ALL_COMPANIES.map(company => {
-    const mentions = results.filter(r => r.scores[company]?.mentionRank !== null).length;
-    return {
-      company,
-      percentage: total > 0 ? Math.round((mentions / total) * 100) : 0,
-      totalMentions: mentions,
-      totalResponses: total,
-    };
-  });
 }

@@ -1,9 +1,7 @@
 import "dotenv/config";
 import { randomUUID } from "crypto";
 import { askChatGPT } from "./llm/openai";
-import { askClaude } from "./llm/anthropic";
-import { askGemini } from "./llm/gemini";
-import { askGrok } from "./llm/grok";
+import { askLlama3, askLlama4, askQwen3 } from "./llm/groq-models";
 import { scoreResponse } from "./scorer";
 import { generateInsights } from "./insights";
 import { PROMPT_VARIATIONS, COMPANIES, DIMENSIONS } from "./dimensions";
@@ -14,12 +12,12 @@ import type {
 
 const LLM_RUNNERS: Record<LLMName, (p: (typeof PROMPT_VARIATIONS)[0]) => Promise<LLMResponse>> = {
   ChatGPT: askChatGPT,
-  Claude: askClaude,
-  Gemini: askGemini,
-  Grok: askGrok,
+  "Llama 3": askLlama3,
+  "Llama 4": askLlama4,
+  "Qwen 3":  askQwen3,
 };
 
-const LLMS: LLMName[] = ["ChatGPT", "Claude", "Gemini", "Grok"];
+const LLMS: LLMName[] = ["ChatGPT", "Llama 3", "Llama 4", "Qwen 3"];
 
 export type ScanEvent =
   | { type: "llm_start"; llm: LLMName; promptId: string }
@@ -51,7 +49,7 @@ function dimAvg(results: VariationResult[], llm: LLMName, dim: Dimension): numbe
 }
 
 function buildSummary(results: VariationResult[], prevScore?: number): ScanSummary {
-  const llmSummaries: Record<LLMName, LLMSummary> = {} as any;
+  const llmSummaries = {} as Record<LLMName, LLMSummary>;
 
   for (const llm of LLMS) {
     const llmResults = results.filter(r => r.llm === llm);
@@ -60,7 +58,7 @@ function buildSummary(results: VariationResult[], prevScore?: number): ScanSumma
       DIMENSIONS.map(d => [d, dimAvg(results, llm, d)])
     ) as Record<Dimension, number>;
     const mentioned = llmResults.filter(r => r.scores[COMPANIES.target]?.mentionRank !== null).length;
-    const isDemo = llm === "Grok" && llmResults.some(r => r.answer.startsWith("[DEMO"));
+    const isDemo = llmResults.some(r => r.answer.startsWith("[DEMO"));
 
     llmSummaries[llm] = {
       llm, overallScore: overall, dimensionScores,
@@ -101,10 +99,12 @@ function buildSummary(results: VariationResult[], prevScore?: number): ScanSumma
 
 function computeSOV(results: VariationResult[]) {
   const total = results.filter(r => r.answer && !r.answer.startsWith("[ERROR")).length;
+  // SOV = % of responses where this company is mentioned FIRST (rank 1)
+  // "any mention" produces 100% for everyone when prompts are domain-specific
   return [COMPANIES.target, ...COMPANIES.competitors].map(company => ({
     company,
-    percentage: total > 0 ? Math.round(results.filter(r => r.scores[company]?.mentionRank !== null).length / total * 100) : 0,
-    totalMentions: results.filter(r => r.scores[company]?.mentionRank !== null).length,
+    percentage: total > 0 ? Math.round(results.filter(r => r.scores[company]?.mentionRank === 1).length / total * 100) : 0,
+    totalMentions: results.filter(r => r.scores[company]?.mentionRank === 1).length,
     totalResponses: total,
   }));
 }
@@ -116,22 +116,29 @@ export async function runScan(
   const rawResponses: LLMResponse[] = [];
 
   // Phase 1: collect all LLM responses
+  // ChatGPT runs in parallel with Groq models; Groq models run sequentially to avoid rate limits
+  const GROQ_LLMS: LLMName[] = ["Llama 3", "Llama 4", "Qwen 3"];
+
   for (const prompt of PROMPT_VARIATIONS) {
-    await Promise.all(LLMS.map(async llm => {
+    // ChatGPT in parallel
+    const runLLM = async (llm: LLMName) => {
       emit({ type: "llm_start", llm, promptId: prompt.id });
       try {
         const res = await withRetry(() => LLM_RUNNERS[llm](prompt));
         rawResponses.push(res);
-        emit({
-          type: "llm_done", llm, promptId: prompt.id,
-          ok: !res.error, latencyMs: res.latencyMs,
-          demo: res.answer.startsWith("[DEMO"),
-        });
+        emit({ type: "llm_done", llm, promptId: prompt.id, ok: !res.error, latencyMs: res.latencyMs, demo: res.answer.startsWith("[DEMO") });
       } catch (err) {
         rawResponses.push({ llm, prompt, answer: `[ERROR] ${String(err)}`, latencyMs: 0, error: String(err) });
         emit({ type: "llm_done", llm, promptId: prompt.id, ok: false, latencyMs: 0 });
       }
-    }));
+    };
+
+    // Run ChatGPT and first Groq model in parallel, then remaining Groq models sequentially
+    await Promise.all([runLLM("ChatGPT"), runLLM("Llama 3")]);
+    for (const llm of GROQ_LLMS.slice(1)) {
+      await runLLM(llm);
+      await new Promise(r => setTimeout(r, 500)); // small gap between Groq calls
+    }
   }
 
   // Phase 2: LLM-based analysis (scored one by one)

@@ -1,4 +1,4 @@
-export type LLMName = "ChatGPT" | "Claude" | "Gemini" | "Grok";
+export type LLMName = "ChatGPT" | "Llama 3" | "Llama 4" | "Qwen 3";
 
 export type Dimension =
   | "supply_chain"
@@ -19,6 +19,7 @@ export interface PromptVariation {
   id: string;
   text: string;
   dimension: Dimension;
+  prompted?: boolean; // true = explicitly names JFrog → guaranteed mention, biases score upward
 }
 
 export interface LLMResponse {
