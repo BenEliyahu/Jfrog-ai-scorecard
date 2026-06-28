@@ -2,6 +2,12 @@
 
 A dynamic web dashboard that measures **how major AI assistants perceive JFrog** in the software security domain, benchmarked against **Sonatype** and **Snyk**.
 
+## Live Demo
+
+**[https://jfrog-ai-scorecard.onrender.com](https://jfrog-ai-scorecard.onrender.com)**
+
+> First load may take ~30 seconds (free tier cold start). Click **Run New Scan** to trigger a live scan across all 4 LLMs.
+
 Each scan sends **25 security-focused prompts** to **4 real LLMs** (ChatGPT, Llama 3, Llama 4, Qwen 3), uses a second AI layer (GPT-4o-mini) to analyze every response with structured output, and surfaces the results as live scores, radar charts, trend lines, and competitive insights.
 
 ---
@@ -24,19 +30,20 @@ Each scan sends **25 security-focused prompts** to **4 real LLMs** (ChatGPT, Lla
 
 ## Proposed Solution
 
-The core problem: how do you objectively measure what AI assistants "think" about JFrog relative to competitors? Keyword matching fails immediately — LLMs write sentences like *"JFrog has established itself as a formidable force in enterprise artifact security"* that no regex captures correctly.
+The core problem: how do you objectively measure what AI assistants "think" about JFrog relative to competitors? Keyword matching fails — LLMs write sentences like *"JFrog has established itself as a formidable force in enterprise artifact security"* that no regex captures correctly.
 
 **The approach: LLM-as-judge.**
 
 A second LLM (GPT-4o-mini) reads each response and returns a structured verdict — mention rank, sentiment, framing, and attributed features — per company. This gives natural language understanding without hand-coded rules.
 
-| Choice | Why |
+| Design choice | Rationale |
 |---|---|
-| 5 prompt variations per dimension | Single prompts are noisy — minor phrasing changes shift answers. Averaging 5 reduces variance. |
-| 5 security dimensions | Collapses a complex market into measurable axes rather than one generic score. |
-| Server-Sent Events for progress | A full scan takes 2–3 minutes. SSE shows live per-LLM status without polling overhead. |
-| Confidence intervals | Std deviation across 4 LLMs reveals whether a score is stable or model-dependent. |
-| PROMPTED badge | 2 of 25 prompts name JFrog explicitly — flagged and excluded from the unprompted baseline. |
+| 5 prompt variations per dimension | Single prompts are noisy — minor phrasing shifts LLM answers. Averaging 5 reduces variance. |
+| 5 security dimensions | Collapses a complex market into measurable axes rather than a single generic score. |
+| Server-Sent Events for progress | A scan takes 2–3 min. SSE streams live per-LLM status without polling or WebSocket overhead. |
+| Confidence intervals (±std dev) | Reveals whether a score is stable across models or model-dependent — critical for trustworthiness. |
+| PROMPTED badge | 2 of 25 prompts name JFrog explicitly. Flagged and separated from the unprompted baseline. |
+| MongoDB Atlas for history | Persistent scan history across restarts. Trend chart populates after 2+ scans. |
 
 ---
 
@@ -44,33 +51,35 @@ A second LLM (GPT-4o-mini) reads each response and returns a structured verdict 
 
 ```
 Browser (Chart.js UI)
-       │  SSE stream (live progress)
+       │  SSE stream — live progress per LLM and prompt
        ▼
-Express Server  ──► /api/scan
+Express Server  ──► POST /api/scan
        │
        ├── Phase 1: LLM Responses
        │     25 prompts × 4 LLMs = 100 API calls
        │     ChatGPT (OpenAI) · Llama 3, Llama 4, Qwen 3 (Groq — free)
        │     Groq: sequential per prompt + 500ms gap (free-tier rate limits)
+       │     ↓ SSE: llm_start / llm_done after each call
        │
        └── Phase 2: Analysis
-             GPT-4o-mini reads each response
-             Zod schema → { mention_rank, sentiment, framing, features }
-             Typed JSON — no parsing errors
-             ↓ append to data/results.json
+             GPT-4o-mini reads each of the 100 responses
+             Zod schema enforces typed JSON output:
+             { mention_rank, sentiment, framing, features[] }
+             ↓ SSE: analyzing N/100
+             ↓ append result to MongoDB Atlas (jfrog-scorecard.scans)
 ```
 
 ### Key files
 
 | File | Role |
 |---|---|
-| `src/dimensions.ts` | 25 prompt variations (5 per dimension) + company list + JFrog feature vocabulary |
-| `src/llm/analyzer.ts` | GPT-4o-mini analysis with Zod structured output |
-| `src/llm/groq-models.ts` | Llama 3, Llama 4, Qwen 3 via Groq; strips Qwen 3 `<think>` tags |
+| `src/dimensions.ts` | 25 prompt variations (5 per dimension), company list, JFrog feature vocabulary |
 | `src/llm/openai.ts` | ChatGPT connector |
-| `src/scorer.ts` | Converts analysis verdict → numeric score (0–100) |
-| `src/scanner.ts` | Orchestrates both phases, emits SSE events |
-| `src/server.ts` | Express server: SSE endpoint + scan history |
+| `src/llm/groq-models.ts` | Llama 3, Llama 4, Qwen 3 via Groq; strips Qwen 3 `<think>` tags |
+| `src/llm/analyzer.ts` | GPT-4o-mini with Zod structured output — returns verdict per company |
+| `src/scorer.ts` | Converts verdict → numeric score (0–100) |
+| `src/scanner.ts` | Orchestrates phases 1–2, emits SSE events throughout |
+| `src/server.ts` | Express: serves dashboard, handles `/api/scan`, persists history |
 | `public/index.html` | Single-page dashboard — Chart.js, no framework |
 
 ---
@@ -80,16 +89,18 @@ Express Server  ──► /api/scan
 ### Prerequisites
 
 - Node.js 18+
-- OpenAI API key — powers ChatGPT + the GPT-4o-mini analysis layer
-- Groq API key (free) — powers Llama 3, Llama 4, Qwen 3 · [console.groq.com](https://console.groq.com)
+- OpenAI API key — ChatGPT responses + GPT-4o-mini analysis layer
+- Groq API key (free) — Llama 3, Llama 4, Qwen 3 · [console.groq.com](https://console.groq.com)
 
-### Install & run
+### Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/jfrog-ai-scorecard.git
-cd jfrog-ai-scorecard
+git clone https://github.com/BenEliyahu/Jfrog-ai-scorecard.git
+cd Jfrog-ai-scorecard
 npm install
 ```
+
+### Configure
 
 Create `.env` in the project root:
 
@@ -99,17 +110,19 @@ GROQ_API_KEY=gsk_...
 PORT=3000
 ```
 
+### Run
+
 ```bash
 npm run dev
 ```
 
-Open **http://localhost:3000**, click **Run New Scan**, and watch the live progress panel. A full scan takes approximately 2–3 minutes. Run a second scan to populate the trend chart.
+Open **http://localhost:3000** and click **Run New Scan**. A full scan takes approximately 2–3 minutes. Run a second scan to populate the trend chart.
 
 ---
 
 ## Scoring model
 
-Each LLM response is analyzed by GPT-4o-mini, returning a structured verdict per company:
+GPT-4o-mini analyzes each LLM response and returns a structured verdict per company:
 
 ```
 mention_rank    1st / 2nd / 3rd / not mentioned
@@ -134,13 +147,13 @@ Mapped to a 0–100 score:
 | Framed as behind | −5 |
 | Each JFrog feature attributed (max 5) | +4 |
 
-Scores across 5 prompt variations per dimension are averaged, then averaged across all 4 LLMs to produce an overall score. Score 0 = company not mentioned — a perception gap, not a data error.
+Scores across 5 prompt variations per dimension are averaged, then averaged across all 4 LLMs to produce the overall score. **Score 0 = company not mentioned** — a perception gap, not a data error.
 
 ---
 
 ## Sample results
 
-Real scans — 4 LLMs × 25 prompts = **100 responses per scan**:
+Two real scans — 4 LLMs × 25 prompts = **100 responses per scan**:
 
 | Dimension | JFrog | Snyk | Sonatype |
 |---|---|---|---|
@@ -150,64 +163,45 @@ Real scans — 4 LLMs × 25 prompts = **100 responses per scan**:
 | Vulnerability Scanning | 20 ±11 | **33** ±10 | 13 ±6 |
 | Developer UX | 27 ±3 | **36** ±7 | 14 ±1 |
 
-**Overall: JFrog 34 · Snyk 27 · Sonatype 18**  
+**Overall: JFrog 34 · Snyk 27 · Sonatype 18**
 **Share of Voice (rank-1 mentions): JFrog 41% · Snyk 34% · Sonatype 7%**
 
-JFrog dominates Enterprise Readiness (69 vs Snyk 12) but trails on Vulnerability Scanning and Developer UX — a perception gap, not a product gap. JFrog Xray and Frogbot cover these areas, but LLM training data doesn't reflect it yet.
+JFrog dominates Enterprise Readiness (69 vs Snyk 12) but trails on Vulnerability Scanning and Developer UX — a perception gap, not a product gap. JFrog Xray and Frogbot cover these areas; the gap reflects LLM training data, not product capability.
 
 ---
 
-## Design decisions
+## What's built
 
-**Why GPT-4o-mini for analysis?**  
-Structured output via `zodResponseFormat` guarantees typed JSON with no parsing exceptions. It handles nuanced language ("established itself as a formidable force") that regex misses. Cost: ~$0.01–0.02 per full scan.
-
-**Why Groq for open-source LLMs?**  
-OpenAI-compatible REST API for Llama 3, Llama 4, and Qwen 3 at zero cost. Switching models is a one-line change. The assignment listed Claude, Gemini, and Grok — Groq was confirmed as an acceptable substitute, and the resulting diversity (US + Chinese training data) is arguably more meaningful.
-
-**Why flat JSON for history?**  
-Zero infrastructure — clone, add `.env`, run. For production, replace `data/results.json` with Postgres or Redis.
-
-**Known bias:** GPT-4o-mini (analyzer) and ChatGPT (subject) are both OpenAI models. Production mitigation: rotate analyzers across vendors.
-
----
-
-## Stage 1 ✅ vs Stage 2 Planned
-
-### Stage 1 — Built
-
-- [x] 25 prompts × 4 LLMs = 100 real responses per scan — no mock data
-- [x] LLM-as-judge: GPT-4o-mini + Zod structured output
-- [x] Live SSE progress panel — per-LLM, per-prompt status in real time
-- [x] Radar chart, trend line, Share of Voice, competitive insights
-- [x] Confidence intervals — mean ± std dev across 4 LLMs per dimension
-- [x] PROMPTED badge — separates biased prompts from unprompted baseline
-- [x] Recommendations — color-coded action cards from dimension scores
-- [x] PDF export — single-click download
-- [x] Collapsible raw LLM responses — full audit trail per question
-
-### Stage 2 — Planned
-
-- [ ] **JFrog Xray integration** — scan a real artifact with a known CVE; compare AI advice to actual Xray output (ground truth validation)
-- [ ] **GitHub Actions CI/CD** — push → Docker build → JFrog Artifactory → Xray security gate
-- [ ] **Scheduled daily scans** — automated trend tracking with Slack/email alerts on score drops
-- [ ] **Analyzer rotation** — eliminate OpenAI-on-OpenAI bias by rotating the analysis model
+- 25 security prompts × 4 LLMs = 100 real responses per scan — no mock data
+- LLM-as-judge: GPT-4o-mini + Zod structured output — no regex, no keyword matching
+- Live SSE progress panel — per-LLM, per-prompt status in real time
+- Overall score with Δ vs. previous scan
+- Share of Voice — % of responses where each company is named first
+- Radar chart — 5 dimensions × 3 companies
+- Score Trend — tracks perception across consecutive scans
+- Confidence intervals — mean ± std dev across 4 LLMs per dimension
+- Competitive insights — auto-generated win/loss/neutral per dimension
+- PROMPTED badge — separates biased prompts from unprompted baseline
+- Unprompted score — bias-free baseline shown separately per dimension
+- Recommendations — color-coded action cards generated from dimension scores
+- PDF export — single-click dashboard download
+- Collapsible raw LLM responses — full audit trail per question and per model
 
 ---
 
-## Challenges and pitfalls
+## Challenges
 
-**LLM non-determinism** — Even at `temperature: 0`, outputs vary across runs. The 5-variation averaging reduces but doesn't eliminate variance. Confidence intervals make this visible.
+**LLM non-determinism** — Even at `temperature: 0`, outputs vary across runs. The 5-variation averaging reduces variance; confidence intervals make remaining uncertainty visible.
 
-**Groq rate limits** — 100 API calls per scan. Fixed by running Groq models sequentially per prompt with a 500ms gap and a `withRetry` wrapper with exponential backoff.
+**Groq rate limits** — 100 API calls per scan on a free tier. Fixed by running Groq models sequentially per prompt with a 500ms gap and a `withRetry` wrapper with exponential backoff.
 
-**Model deprecations** — Groq deprecated two models mid-development (Mixtral, Gemma2). Fixed by replacing them with Llama 4 Scout and Qwen 3. Each connector is a self-contained file — swapping takes one line.
+**Model deprecations mid-development** — Groq deprecated Mixtral and Gemma2 during development. Replaced with Llama 4 Scout and Qwen 3. Each LLM connector is a self-contained file — swapping is a one-line change.
 
-**Qwen 3 thinking tokens** — Qwen 3 prefixes answers with `<think>...</think>` reasoning blocks. Stripped with a regex in `groq-models.ts` before analysis.
+**Qwen 3 thinking tokens** — Qwen 3 prefixes answers with `<think>...</think>` reasoning blocks. Stripped via regex in `groq-models.ts` before analysis.
 
-**PROMPTED bias** — Two prompts name JFrog explicitly, guaranteeing a mention and inflating scores. Flagged with a yellow PROMPTED badge; unprompted averages shown separately.
+**PROMPTED bias** — Two prompts name JFrog explicitly, guaranteeing a mention and inflating scores. Flagged with a PROMPTED badge; unprompted averages shown separately per dimension.
 
-**Score gaming** — Scores reflect AI perception, not product quality. A competitor could improve their score via SEO-optimized content. This is a measurement tool, not a ground-truth benchmark.
+**Analyzer self-reference** — GPT-4o-mini (the analyzer) and ChatGPT (one subject) are both OpenAI models. Documented as a known bias; production mitigation would rotate the analyzer across vendors.
 
 ---
 

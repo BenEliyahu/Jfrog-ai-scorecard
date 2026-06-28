@@ -1,35 +1,43 @@
 import "dotenv/config";
 import express from "express";
 import path from "path";
-import fs from "fs";
+import { MongoClient, Collection } from "mongodb";
 import { runScan } from "./scanner";
 import type { ScanResult } from "./types";
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
-const DATA_FILE = path.join(__dirname, "..", "data", "results.json");
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "..", "public")));
 
-function loadHistory(): ScanResult[] {
-  if (!fs.existsSync(DATA_FILE)) return [];
-  try { return JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")); }
-  catch { return []; }
+let scansCollection: Collection<ScanResult>;
+
+async function connectDB(): Promise<void> {
+  const uri = process.env.MONGODB_URI;
+  if (!uri) throw new Error("MONGODB_URI is not set in .env");
+  const client = new MongoClient(uri);
+  await client.connect();
+  scansCollection = client.db("jfrog-scorecard").collection<ScanResult>("scans");
+  console.log("MongoDB connected");
 }
 
-function saveHistory(history: ScanResult[]): void {
-  fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-  fs.writeFileSync(DATA_FILE, JSON.stringify(history, null, 2));
+async function loadHistory(): Promise<ScanResult[]> {
+  return scansCollection
+    .find({}, { projection: { _id: 0 }, sort: { timestamp: 1 } })
+    .toArray();
 }
 
-app.get("/api/history", (_req, res) => res.json(loadHistory()));
-app.get("/api/latest", (_req, res) => {
-  const h = loadHistory();
+app.get("/api/history", async (_req, res) => {
+  res.json(await loadHistory());
+});
+
+app.get("/api/latest", async (_req, res) => {
+  const h = await loadHistory();
   res.json(h.length ? h[h.length - 1] : null);
 });
 
-app.get("/api/scan", (_req, res) => {
+app.get("/api/scan", async (_req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
@@ -37,13 +45,12 @@ app.get("/api/scan", (_req, res) => {
   const send = (event: string, data: unknown) =>
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
-  const history = loadHistory();
+  const history = await loadHistory();
   const prevScore = history.length ? history[history.length - 1].summary.overallScore : undefined;
 
-  runScan(prevScore, event => {
+  runScan(prevScore, async event => {
     if (event.type === "complete") {
-      history.push(event.result);
-      saveHistory(history);
+      await scansCollection.insertOne({ ...event.result });
       send("complete", event.result);
       res.end();
     } else {
@@ -55,6 +62,6 @@ app.get("/api/scan", (_req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`🐸 http://localhost:${PORT}`);
+connectDB().then(() => {
+  app.listen(PORT, () => console.log(`🐸 http://localhost:${PORT}`));
 });
