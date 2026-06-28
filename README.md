@@ -108,6 +108,7 @@ Create `.env` in the project root:
 OPENAI_API_KEY=sk-...
 GROQ_API_KEY=gsk_...
 PORT=3000
+MONGODB_URI=mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/
 ```
 
 ### Run
