@@ -269,6 +269,61 @@ header p { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 1px; }
 .empty h2 { font-size: 20px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
 .empty p { font-size: 14px; line-height: 1.6; max-width: 400px; margin: 0 auto; }
 
+/* ── JFROG LOADER ── */
+.jfrog-loader {
+  background: linear-gradient(135deg, #1B2A4A 0%, #0f1a30 100%);
+  border-radius: var(--radius); padding: 80px 20px;
+  text-align: center; color: white;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+}
+.jfrog-loader-logo {
+  height: 32px; margin-bottom: 40px; opacity: 0.95;
+  filter: brightness(0) invert(1);
+}
+.jfrog-radar {
+  position: relative; width: 90px; height: 90px;
+  margin: 0 auto 32px; display: flex; align-items: center; justify-content: center;
+}
+.jfrog-radar::before,
+.jfrog-radar::after {
+  content: ''; position: absolute; inset: 0;
+  border-radius: 50%; border: 2px solid rgba(64,190,70,0.3);
+  animation: radar-ring 2s ease-out infinite;
+}
+.jfrog-radar::after { animation-delay: 1s; }
+.radar-ring2 {
+  position: absolute; inset: 0;
+  border-radius: 50%; border: 2px solid rgba(64,190,70,0.15);
+  animation: radar-ring 2s ease-out infinite; animation-delay: 0.5s;
+}
+@keyframes radar-ring {
+  0%   { transform: scale(0.5); opacity: 1; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+.radar-frog {
+  font-size: 36px; position: relative; z-index: 1;
+  animation: frog-bob 1.6s ease-in-out infinite;
+}
+@keyframes frog-bob {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-6px); }
+}
+.jfrog-loader-dots {
+  display: flex; gap: 8px; justify-content: center; margin-bottom: 18px;
+}
+.jfrog-loader-dots span {
+  width: 8px; height: 8px; border-radius: 50%; background: #40BE46;
+  animation: dot-bounce 1.2s ease-in-out infinite;
+}
+.jfrog-loader-dots span:nth-child(2) { animation-delay: 0.2s; }
+.jfrog-loader-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes dot-bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40%           { transform: scale(1);   opacity: 1; }
+}
+.jfrog-loader h2 { font-size: 18px; font-weight: 700; margin-bottom: 6px; color: white; }
+.jfrog-loader p  { font-size: 13px; color: rgba(255,255,255,0.45); }
+
 /* ── RESPONSIVE ── */
 @media(max-width:800px) {
   .grid4 { grid-template-columns: repeat(2,1fr); }
@@ -315,10 +370,17 @@ header p { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 1px; }
   </div>
 
   <div id="app">
-    <div class="empty">
-      <div class="empty-icon">📡</div>
-      <h2>No scan data yet</h2>
-      <p>Click "Run New Scan" to query all LLMs across 5 security dimensions with 3 prompt variations each — 60 total responses analyzed by GPT-4o mini.</p>
+    <div class="jfrog-loader">
+      <img class="jfrog-loader-logo"
+        src="https://speedmedia2.jfrog.com/08612fe1-9391-4cf3-ac1a-6dd49c36b276/media.jfrog.com/wp-content/uploads/2024/08/08132607/jfrog-logo-2022.svg"
+        alt="JFrog">
+      <div class="jfrog-radar">
+        <div class="radar-ring2"></div>
+        <div class="radar-frog">🐸</div>
+      </div>
+      <div class="jfrog-loader-dots"><span></span><span></span><span></span></div>
+      <h2>Loading scan data</h2>
+      <p>Connecting to MongoDB Atlas…</p>
     </div>
   </div>
 </div>
@@ -794,7 +856,25 @@ async function exportPDF() {
   }
 }
 
-fetch("/api/latest").then(r=>r.json()).then(d => { if(d) renderDashboard(d); });
+fetch("/api/latest").then(r=>r.json()).then(d => {
+  if (d) {
+    renderDashboard(d);
+  } else {
+    document.getElementById("app").innerHTML = `
+      <div class="empty">
+        <div class="empty-icon">📡</div>
+        <h2>No scan data yet</h2>
+        <p>Click "Run New Scan" to query all LLMs across 5 security dimensions with 3 prompt variations each — 60 total responses analyzed by GPT-4o mini.</p>
+      </div>`;
+  }
+}).catch(() => {
+  document.getElementById("app").innerHTML = `
+    <div class="empty">
+      <div class="empty-icon">⚠️</div>
+      <h2>Could not connect</h2>
+      <p>Make sure the server is running and MongoDB is reachable.</p>
+    </div>`;
+});
 fetch("/api/history").then(r=>r.json()).then(h => { if(h?.length>=2) loadTrend(); });
 </script>
 </body>
