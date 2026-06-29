@@ -333,6 +333,17 @@ header p { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 1px; }
   .hero-stat { border-right: none; padding: 0; }
   .llm-rows { grid-template-columns: repeat(2,1fr); }
 }
+
+@media(max-width:600px) {
+  header { padding: 0 14px; height: 52px; }
+  header p { display: none; }
+  header h1 { font-size: 13px; }
+  .logo img { height: 24px; }
+  .logo > div { padding-left: 10px; margin-left: 0; }
+  .export-btn { display: none; }
+  .scan-btn { font-size: 12px; padding: 7px 12px; gap: 5px; }
+  .scan-btn span { display: none; }
+}
 </style>
 </head>
 <body>
