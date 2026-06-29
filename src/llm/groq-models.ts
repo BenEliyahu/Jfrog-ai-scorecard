@@ -18,7 +18,7 @@ async function askGroqModel(
         body: JSON.stringify({
           model,
           messages: [{ role: "user", content: prompt.text }],
-          max_tokens: 600,
+          max_tokens: model.includes("qwen") ? 2000 : 600,
           temperature: 0,
         }),
       });
@@ -33,7 +33,10 @@ async function askGroqModel(
       const data = await res.json() as { choices?: { message?: { content?: string } }[]; error?: { message: string } };
       if (data.error) throw new Error(data.error.message);
       const raw = data.choices?.[0]?.message?.content ?? "";
-      const text = raw.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+      const text = raw
+        .replace(/<think>[\s\S]*?<\/think>/g, "")
+        .replace(/<think>[\s\S]*/g, "")
+        .trim();
       return { llm, prompt, answer: text, latencyMs: Date.now() - start };
     } catch (err) {
       if (i === retries) return { llm, prompt, answer: "", latencyMs: Date.now() - start, error: String(err) };
